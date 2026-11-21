@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Heart Disease Predictor</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f4f6f8; color: #222; margin: 0; padding: 20px; }
+    .card { max-width: 520px; margin: 20px auto; background: #fff; padding: 24px;
+            border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.1); }
+    h1 { font-size: 24px; text-align: center; margin: 0 0 6px; }
+    p.sub { text-align: center; color: #555; font-size: 14px; margin: 0 0 10px; }
+    .warn { background: #fff7e6; border: 1px solid #f5d79e; color: #7a5200; font-size: 13px;
+            padding: 10px; border-radius: 8px; margin-top: 12px; line-height: 1.5; }
+    label { display: block; margin-top: 14px; font-size: 14px; }
+    label span { display: block; color: #777; font-size: 12px; margin-top: 2px; }
+    input, select { width: 100%; padding: 9px; margin-top: 4px; box-sizing: border-box;
+                    border: 1px solid #ccc; border-radius: 6px; font-size: 15px; background: #fff; }
+    button { width: 100%; margin-top: 22px; padding: 12px; background: #2563eb; color: #fff;
+             border: 0; border-radius: 8px; font-size: 16px; cursor: pointer; }
+    button:hover { background: #1d4ed8; }
+    button:disabled { background: #9ca3af; cursor: wait; }
+    #result { margin-top: 20px; padding: 14px; border-radius: 8px; text-align: center;
+              font-size: 18px; display: none; }
+    #result.ok { background: #eef4ff; display: block; }
+    #result.bad { background: #fdecea; color: #b91c1c; font-size: 14px; display: block; }
+    #result b { font-size: 26px; display: block; margin: 4px 0; }
+    #result small { display: block; font-size: 13px; color: #555; margin-top: 6px; }
+    #status { text-align: center; font-size: 13px; color: #777; margin-top: 12px; }
+    .note { margin-top: 18px; font-size: 12px; color: #777; text-align: center; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>❤️ Heart Disease Predictor</h1>
+    <p class="sub">A logistic regression model trained on the UCI Cleveland heart disease data</p>
+    <div class="warn">
+      <b>Educational project only.</b> This is not a medical tool and cannot diagnose anyone.
+      If you have health concerns, please talk to a doctor.
+    </div>
+
+    <form id="form">
+      <div id="fields"></div>
+      <button type="submit" id="btn" disabled>Loading model…</button>
+    </form>
+
+    <div id="result"></div>
+    <div id="status"></div>
+
+    <p class="note">
+      The model runs entirely in your browser. It was trained on about 300 patients from one hospital,
+      so its results may not hold for other people.
+    </p>
+  </div>
+
+  <script>
+    var model = null;
+
+    // Labels shown above each field
+    var LABELS = {
+      age: "Age (years)",
+      trestbps: "Resting blood pressure (mm Hg)",
+      chol: "Cholesterol (mg/dl)",
+      thalach: "Maximum heart rate reached",
+      oldpeak: "ST depression during exercise",
+      sex: "Sex",
+      cp: "Chest pain type",
+      fbs: "Fasting blood sugar above 120 mg/dl",
+      restecg: "Resting ECG result",
+      exang: "Chest pain caused by exercise",
+      slope: "ST segment slope during exercise",
+      ca: "Major blood vessels seen in scan (0 to 3)",
+      thal: "Thalassemia test result"
+    };
+
+    // Build the form from the settings stored in model.json
+    function buildForm() {
+      var html = "";
+      model.num_cols.forEach(function (col) {
+        var r = model.ranges[col];
+        var step = (col === "oldpeak") ? "0.1" : "any";
+        html += '<label>' + LABELS[col] +
+                '<input type="number" id="' + col + '" step="' + step + '" min="' + r[0] + '" max="' + r[1] +
+                '" value="' + model.defaults_num[col] + '" required>' +
+                '<span>Range ' + r[0] + ' to ' + r[1] + '.</span></label>';
+      });
+      model.cat_cols.forEach(function (col, k) {
+        html += '<label>' + LABELS[col] + '<select id="' + col + '">';
+        model.categories[k].forEach(function (c) {
+          var sel = (c === model.defaults_cat[col]) ? " selected" : "";
+          html += '<option value="' + c + '"' + sel + '>' + c + '</option>';
+        });
+        html += '</select></label>';
+      });
+      document.getElementById("fields").innerHTML = html;
+    }
+
+    // Same steps as the Python pipeline: scale -> one-hot -> coefficients -> sigmoid
+    function predictProbability(numValues, catValues) {
+      var features = numValues.map(function (v, i) { return (v - model.mean[i]) / model.scale[i]; });
+      model.categories.forEach(function (cats, k) {
+        cats.forEach(function (c) { features.push(catValues[k] === c ? 1 : 0); });
+      });
+
+      var score = model.intercept;
+      for (var i = 0; i < features.length; i++) { score += features[i] * model.coef[i]; }
+      return 1 / (1 + Math.exp(-score));
+    }
+
+    // Load model.json (must be in the same folder as this page)
+    fetch("model.json")
+      .then(function (res) {
+        if (!res.ok) { throw new Error("model.json not found"); }
+        return res.json();
+      })
+      .then(function (data) {
+        model = data;
+        buildForm();
+        document.getElementById("btn").disabled = false;
+        document.getElementById("btn").textContent = "Calculate";
+      })
+      .catch(function () {
+        document.getElementById("btn").textContent = "Model not loaded";
+        document.getElementById("status").textContent =
+          "Could not load model.json. Open this page from its website link, not by double-clicking the file.";
+      });
+
+    document.getElementById("form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var box = document.getElementById("result");
+      var numValues = [];
+      var catValues = [];
+
+      for (var j = 0; j < model.num_cols.length; j++) {
+        var col = model.num_cols[j];
+        var input = document.getElementById(col);
+        var num = parseFloat(input.value);
+        if (isNaN(num) || num < parseFloat(input.min) || num > parseFloat(input.max)) {
+          box.className = "bad";
+          box.textContent = LABELS[col] + " must be between " + input.min + " and " + input.max + ".";
+          return;
+        }
+        numValues.push(num);
+      }
+      model.cat_cols.forEach(function (col) {
+        catValues.push(document.getElementById(col).value);
+      });
+
+      var p = predictProbability(numValues, catValues);
+      var label = (p >= 0.5) ? "The model predicts: heart disease likely"
+                             : "The model predicts: heart disease unlikely";
+      box.className = "ok";
+      box.innerHTML = "Model probability of heart disease" +
+                      "<b>" + (p * 100).toFixed(1) + "%</b>" + label +
+                      "<small>On its test patients, this model was right about " + model.test_accuracy +
+                      "% of the time and found " + model.test_recall + "% of the patients who had heart disease.</small>" +
+                      "<small>Educational demo only, not medical advice.</small>";
+    });
+  </script>
+</body>
+</html>
